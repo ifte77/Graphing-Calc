@@ -46,12 +46,12 @@
   <header class="flex items-center justify-between border-b border-line px-4 py-2.5 shrink-0">
     <div class="flex items-baseline gap-2">
       <span class="font-['Cormorant_Garamond'] font-semibold uppercase tracking-wider">NEVERENDER<span class="font-['Cormorant_Garamond'] font-semibold uppercase tracking-wider">/</span>GC</span>
-      <span class="hidden sm:inline text-xs text-fgdim font-mono">y = f(x)</span>
+      <span class="hidden sm:inline text-xs text-fgdim font-mono">y = f(x) ; Click on y for x = f(y)</span>
     </div>
     <div class="flex items-center gap-1 font-mono text-xs">
-      <button id="zoomOutBtn"  class="w-7 h-7 border border-line hover:border-fgdim text-fgdim hover:text-fg transition-colors" title="Zoom out">−</button>
-      <button id="zoomInBtn"   class="w-7 h-7 border border-line hover:border-fgdim text-fgdim hover:text-fg transition-colors" title="Zoom in">+</button>
-      <button id="resetBtn"    class="h-7 px-3 border border-line hover:border-fgdim text-fgdim hover:text-fg transition-colors ml-1">reset view</button>
+      <button id="zoomOutBtn"  class="font-['Cormorant_Garamond'] font-bold uppercase tracking-wider text-black hover:text-white transition-colorsw-full border-2 border-black bg-red-500 px-6 py-3 font-bold uppercase tracking-wider text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-x-1 active:translate-y-1 active:shadow-none transition-all" title="Zoom out">−</button>
+      <button id="zoomInBtn"   class="font-['Cormorant_Garamond'] font-bold uppercase tracking-wider text-black hover:text-white transition-colorsw-full border-2 border-black bg-green-500 px-6 py-3 font-bold uppercase tracking-wider text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-x-1 active:translate-y-1 active:shadow-none transition-all" title="Zoom in">+</button>
+      <button id="resetBtn"    class="font-['Cormorant_Garamond'] font-semibold uppercase tracking-wider text-black hover:text-white transition-colorsw-full border-2 border-black bg-cyan-800 px-6 py-3 font-bold uppercase tracking-wider text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-x-1 active:translate-y-1 active:shadow-none transition-all">reset view</button>
     </div>
   </header>
   <main class="flex flex-col md:flex-row flex-1 min-h-0">
@@ -66,10 +66,10 @@
 
       <div class="px-4 py-3 border-t border-line">
         <h2 class="text-xs text-fgdim mb-2">quick insert</h2>
-        <div id="examples" class="flex flex-wrap gap-1.5"></div>
+        <div id="examples" class="flex flex-wrap gap-1.5 "></div>
       </div>
 
-      <div class="px-4 py-3 border-t border-line font-mono text-[11px] text-fgdim leading-relaxed">
+      <div class="px-4 py-3 border-t border-line font-mono text-[11px] text-fgdim leading-relaxed ">
         <div class="flex justify-between"><span>center</span><span id="infoCenter">0, 0</span></div>
         <div class="flex justify-between"><span>scale</span><span id="infoScale">— px/unit</span></div>
         <div class="mt-2 text-fgdim/70">drag to pan · scroll or pinch to zoom</div>
@@ -86,13 +86,12 @@
   <template id="fnRowTemplate">
     <div class="fn-row flex items-center gap-2">
       <button class="swatchBtn w-3.5 h-3.5 shrink-0 border border-black/20" title="toggle visibility"></button>
-      <span class="font-mono text-fgdim text-sm shrink-0">y=</span>
+      <button class="modeToggleBtn font-mono text-fgdim text-sm shrink-0 w-7 text-left hover:text-fg transition-colors" title="switch between y=f(x) and x=f(y)">y=</button>
       <input type="text" spellcheck="false"
         class="exprInput flex-1 min-w-0 bg-ink border border-line focus:border-fgdim outline-none font-mono text-sm px-2 py-1.5 text-fg">
       <button class="deleteBtn shrink-0 w-7 h-7 text-fgdim hover:text-[#D8637B] transition-colors" title="remove">×</button>
     </div>
   </template>
-
   <script src="script.js"></script>
 </body>
 </html>

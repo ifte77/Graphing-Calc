@@ -61,12 +61,9 @@ function toRPN(tokens) {
   const stack = [];
   let prev = null;
 
-  const startsValue = (t) => t && (t.type === 'num' || t.type === 'ident' || t === '(');
-
   for (let idx = 0; idx < tokens.length; idx++) {
     const t = tokens[idx];
 
-    // --- implicit multiplication: value directly followed by another value ---
     const prevEndsValue = prev && (prev.type === 'num' || prev.type === 'ident' || prev.type === ')');
     const thisStartsValue = t.type === 'num' || t.type === 'ident' || t.type === '(';
     if (prevEndsValue && thisStartsValue) {
@@ -130,7 +127,7 @@ function toRPN(tokens) {
   return output;
 }
 
-function evalRPN(rpn, x) {
+function evalRPN(rpn, val, varName) {
   const stack = [];
   for (const t of rpn) {
     if (typeof t === 'string') {
@@ -154,7 +151,7 @@ function evalRPN(rpn, x) {
     } else if (t.type === 'num') {
       stack.push(t.value);
     } else if (t.type === 'ident') {
-      if (t.value === 'x') stack.push(x);
+      if (t.value === varName) stack.push(val);
       else if (t.value in CONSTANTS) stack.push(CONSTANTS[t.value]);
       else throw new Error(`unknown identifier "${t.value}"`);
     } else if (t.type === 'call') {
@@ -168,11 +165,12 @@ function evalRPN(rpn, x) {
   return stack[0];
 }
 
-function compileExpression(src) {
+function compileExpression(src, varName) {
+  varName = varName || 'x';
   if (!src || !src.trim()) throw new Error('empty expression');
   const rpn = toRPN(tokenize(src));
-  evalRPN(rpn, 1);
-  return (x) => evalRPN(rpn, x);
+  evalRPN(rpn, 1, varName);
+  return (v) => evalRPN(rpn, v, varName);
 }
 
 const view = { scale: 60, panX: 0, panY: 0 };
@@ -199,7 +197,7 @@ function niceStep(targetPx) {
 function formatTick(v, step) {
   const decimals = Math.max(0, -Math.floor(Math.log10(step)) + (step < 1 ? 0 : 0));
   let s = v.toFixed(Math.min(decimals + 2, 6));
-  s = s.replace(/\.?0+$/, ''); // trim trailing zeros
+  s = s.replace(/\.?0+$/, '');
   return s === '' || s === '-' ? '0' : s;
 }
 
@@ -210,10 +208,11 @@ const nextColor = () => PALETTE[colorCursor++ % PALETTE.length];
 let fnIdCounter = 0;
 const functions = [];
 
-function addFunction(expr, colorOverride) {
+function addFunction(expr, colorOverride, mode) {
   const entry = {
     id: ++fnIdCounter,
     expr,
+    mode: mode === 'x' ? 'x' : 'y',
     color: colorOverride || nextColor(),
     visible: true,
     compiled: null,
@@ -227,7 +226,7 @@ function addFunction(expr, colorOverride) {
 
 function recompile(entry) {
   try {
-    entry.compiled = compileExpression(entry.expr);
+    entry.compiled = compileExpression(entry.expr, entry.mode === 'x' ? 'y' : 'x');
     entry.error = null;
   } catch (err) {
     entry.compiled = null;
@@ -259,7 +258,7 @@ function resizeCanvas() {
 
 function drawGrid(cx, cy) {
   const step = niceStep(70);
-  const majorEvery = 5;        
+  const majorEvery = 5;
 
   ctx.lineWidth = 1;
   ctx.font = '11px "IBM Plex Mono", monospace';
@@ -312,24 +311,34 @@ function drawCurve(entry, cx, cy) {
   ctx.beginPath();
 
   let penDown = false;
-  let prevY = null;
-  const jumpThreshold = cssHeight * 4; 
+  let prevCoord = null;
 
-  for (let px = 0; px <= cssWidth; px++) {
-    const worldX = screenToWorld(px, 0, cx, cy).x;
-    let y;
-    try { y = entry.compiled(worldX); } catch { y = NaN; }
+  if (entry.mode === 'x') {
+    const jumpThreshold = cssWidth * 4;
+    for (let py = 0; py <= cssHeight; py++) {
+      const worldY = screenToWorld(0, py, cx, cy).y;
+      let xVal;
+      try { xVal = entry.compiled(worldY); } catch { xVal = NaN; }
+      if (!Number.isFinite(xVal)) { penDown = false; prevCoord = null; continue; }
 
-    if (!Number.isFinite(y)) { penDown = false; prevY = null; continue; }
-
-    const sy = cy - y * view.scale + view.panY;
-
-    if (prevY !== null && Math.abs(sy - prevY) > jumpThreshold) {
-      penDown = false;
+      const sx = cx + view.panX + xVal * view.scale;
+      if (prevCoord !== null && Math.abs(sx - prevCoord) > jumpThreshold) penDown = false;
+      if (!penDown) { ctx.moveTo(sx, py); penDown = true; } else ctx.lineTo(sx, py);
+      prevCoord = sx;
     }
-    if (!penDown) { ctx.moveTo(px, sy); penDown = true; }
-    else ctx.lineTo(px, sy);
-    prevY = sy;
+  } else {
+    const jumpThreshold = cssHeight * 4;
+    for (let px = 0; px <= cssWidth; px++) {
+      const worldX = screenToWorld(px, 0, cx, cy).x;
+      let yVal;
+      try { yVal = entry.compiled(worldX); } catch { yVal = NaN; }
+      if (!Number.isFinite(yVal)) { penDown = false; prevCoord = null; continue; }
+
+      const sy = cy - yVal * view.scale + view.panY;
+      if (prevCoord !== null && Math.abs(sy - prevCoord) > jumpThreshold) penDown = false;
+      if (!penDown) { ctx.moveTo(px, sy); penDown = true; } else ctx.lineTo(px, sy);
+      prevCoord = sy;
+    }
   }
   ctx.stroke();
 }
@@ -364,6 +373,9 @@ function renderFnList() {
     swatch.style.background = entry.visible ? entry.color : 'transparent';
     swatch.style.borderColor = entry.color;
 
+    const modeBtn = node.querySelector('.modeToggleBtn');
+    modeBtn.textContent = entry.mode === 'x' ? 'x=' : 'y=';
+
     const input = node.querySelector('.exprInput');
     input.value = entry.expr;
     input.title = entry.error ? entry.error : '';
@@ -371,6 +383,15 @@ function renderFnList() {
     swatch.addEventListener('click', () => {
       entry.visible = !entry.visible;
       swatch.style.background = entry.visible ? entry.color : 'transparent';
+      draw();
+    });
+
+    modeBtn.addEventListener('click', () => {
+      entry.mode = entry.mode === 'x' ? 'y' : 'x';
+      modeBtn.textContent = entry.mode === 'x' ? 'x=' : 'y=';
+      recompile(entry);
+      node.classList.toggle('has-error', !!entry.error);
+      input.title = entry.error || '';
       draw();
     });
 
@@ -388,13 +409,20 @@ function renderFnList() {
   }
 }
 
-const EXAMPLES = ['sin(x)', 'x^2', '1/x', 'sqrt(x)', 'x^3 - 2x', 'cos(x)*x'];
+const EXAMPLES = [
+  { label: 'sin(x)', expr: 'sin(x)', mode: 'y' },
+  { label: 'x^2', expr: 'x^2', mode: 'y' },
+  { label: '1/x', expr: '1/x', mode: 'y' },
+  { label: 'sqrt(x)', expr: 'sqrt(x)', mode: 'y' },
+  { label: 'x = y^2', expr: 'y^2', mode: 'x' },
+  { label: 'cos(x)*x', expr: 'cos(x)*x', mode: 'y' },
+];
 const examplesEl = document.getElementById('examples');
 for (const ex of EXAMPLES) {
   const btn = document.createElement('button');
-  btn.textContent = ex;
+  btn.textContent = ex.label;
   btn.className = 'font-mono text-[11px] border border-line hover:border-fgdim text-fgdim hover:text-fg px-2 py-1 transition-colors';
-  btn.addEventListener('click', () => addFunction(ex));
+  btn.addEventListener('click', () => addFunction(ex.expr, null, ex.mode));
   examplesEl.appendChild(btn);
 }
 
