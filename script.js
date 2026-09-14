@@ -1,23 +1,3 @@
-/* =========================================================================
-   PLOT/TABLE — graphing calculator
-   Sections:
-     1. Expression parser   (text  ->  callable f(x))
-     2. View / coordinate math   (world <-> screen)
-     3. State                (list of plotted functions, current view)
-     4. Renderer             (grid, axes, curves — drawn on <canvas>)
-     5. UI wiring            (sidebar rows, buttons, pan/zoom input)
-   ========================================================================= */
-
-
-/* =========================================================================
-   1. EXPRESSION PARSER
-   We turn a string like "sin(x) * 2 - x^2" into a JS function of x.
-   We do NOT use eval()/new Function() on raw user text — instead we run a
-   small, self-contained math parser (tokenize -> shunting-yard -> RPN eval).
-   This means a string like "alert(1)" simply fails to parse (no identifier
-   named "alert" is recognised) rather than ever being executed.
-   ========================================================================= */
-
 const CONSTANTS = { pi: Math.PI, e: Math.E };
 
 const FUNCTIONS = {
@@ -29,23 +9,17 @@ const FUNCTIONS = {
   floor: Math.floor, ceil: Math.ceil, round: Math.round, sign: Math.sign,
 };
 
-// Operator precedence & associativity, used by the shunting-yard step.
-// Note that unary minus sits BELOW '^' on purpose: standard math/calculator
-// convention reads "-x^2" as "-(x^2)", not "(-x)^2" (try it on any graphing
-// calculator — at x=2 that's -4, not 4).
 const OPS = {
   '+': { prec: 1, assoc: 'L' },
   '-': { prec: 1, assoc: 'L' },
   '*': { prec: 2, assoc: 'L' },
   '/': { prec: 2, assoc: 'L' },
   '%': { prec: 2, assoc: 'L' },
-  'u-': { prec: 3, assoc: 'R' }, // unary minus, e.g. -x
+  'u-': { prec: 3, assoc: 'R' },
   'u+': { prec: 3, assoc: 'R' },
   '^': { prec: 4, assoc: 'R' },
 };
 
-/** Turn a raw string into a flat list of tokens: numbers, identifiers,
- *  operators and parentheses. Whitespace is dropped. */
 function tokenize(src) {
   const tokens = [];
   let i = 0;
@@ -82,13 +56,10 @@ function tokenize(src) {
   return tokens;
 }
 
-/** Classic shunting-yard: convert infix tokens to Reverse Polish Notation.
- *  We also disambiguate unary +/- here, and insert an implicit
- *  multiplication for forms like "2x" or "2(x+1)" or "x sin(x)". */
 function toRPN(tokens) {
   const output = [];
   const stack = [];
-  let prev = null; // previous token, to detect unary operators / implicit *
+  let prev = null;
 
   const startsValue = (t) => t && (t.type === 'num' || t.type === 'ident' || t === '(');
 
@@ -111,23 +82,20 @@ function toRPN(tokens) {
     if (t.type === 'num') {
       output.push(t);
     } else if (t.type === 'ident') {
-      // A function name is an identifier immediately followed by '('.
       const next = tokens[idx + 1];
       if (next && next.type === '(' && (FUNCTIONS[t.value] !== undefined)) {
         stack.push('fn:' + t.value);
-        // A function name alone (e.g. "sin") isn't a completed value, so it
-        // must NOT trigger implicit multiplication against the "(" that follows.
         prev = { type: 'fnname' };
         continue;
       } else {
-        output.push(t); // variable (x) or constant (pi, e)
+        output.push(t);
       }
     } else if (t.type === '(') {
       stack.push('(');
     } else if (t.type === ')') {
       while (stack.length && stack[stack.length - 1] !== '(') output.push(stack.pop());
       if (!stack.length) throw new Error('mismatched parentheses');
-      stack.pop(); // discard '('
+      stack.pop();
       if (stack.length && String(stack[stack.length - 1]).startsWith('fn:')) {
         output.push({ type: 'call', value: stack.pop().slice(3) });
       }
@@ -162,7 +130,6 @@ function toRPN(tokens) {
   return output;
 }
 
-/** Evaluate an RPN token list for a given x. */
 function evalRPN(rpn, x) {
   const stack = [];
   for (const t of rpn) {
@@ -201,26 +168,12 @@ function evalRPN(rpn, x) {
   return stack[0];
 }
 
-/** Public entry point: string -> function(x) -> number.
- *  Parsing happens once; the returned closure just replays the RPN,
- *  which is what makes plotting thousands of points per frame cheap. */
 function compileExpression(src) {
   if (!src || !src.trim()) throw new Error('empty expression');
   const rpn = toRPN(tokenize(src));
-  // Run once with a throwaway value so a bad expression fails immediately
-  // (at "add function" time) rather than mid-render.
   evalRPN(rpn, 1);
   return (x) => evalRPN(rpn, x);
 }
-
-
-/* =========================================================================
-   2. VIEW / COORDINATE MATH
-   The view is described by:
-     - scale     : screen pixels per 1 unit of math (zoom level)
-     - panX/panY : screen-pixel offset of the math origin from canvas centre
-   Screen y grows downward, math y grows upward, so the y transform flips sign.
-   ========================================================================= */
 
 const view = { scale: 60, panX: 0, panY: 0 };
 
@@ -231,8 +184,6 @@ function screenToWorld(sx, sy, cx, cy) {
   return { x: (sx - cx - view.panX) / view.scale, y: -(sy - cy - view.panY) / view.scale };
 }
 
-/** Pick a "nice" grid step (1/2/5 * 10^n) so grid lines land roughly
- *  `targetPx` apart on screen regardless of zoom level. */
 function niceStep(targetPx) {
   const targetUnits = targetPx / view.scale;
   const pow10 = Math.pow(10, Math.floor(Math.log10(targetUnits)));
@@ -252,17 +203,12 @@ function formatTick(v, step) {
   return s === '' || s === '-' ? '0' : s;
 }
 
-
-/* =========================================================================
-   3. STATE
-   ========================================================================= */
-
 const PALETTE = ['#E8A33D', '#4FB8AF', '#D8637B', '#8C7AE6', '#9CCB6E', '#5EA8D8'];
 let colorCursor = 0;
 const nextColor = () => PALETTE[colorCursor++ % PALETTE.length];
 
 let fnIdCounter = 0;
-const functions = []; // { id, expr, color, visible, compiled, error }
+const functions = [];
 
 function addFunction(expr, colorOverride) {
   const entry = {
@@ -296,11 +242,6 @@ function removeFunction(id) {
   draw();
 }
 
-
-/* =========================================================================
-   4. RENDERER
-   ========================================================================= */
-
 const canvas = document.getElementById('graph');
 const ctx = canvas.getContext('2d');
 let cssWidth = 0, cssHeight = 0;
@@ -312,13 +253,13 @@ function resizeCanvas() {
   cssHeight = rect.height;
   canvas.width = Math.round(cssWidth * dpr);
   canvas.height = Math.round(cssHeight * dpr);
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // draw in CSS-pixel units
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   draw();
 }
 
 function drawGrid(cx, cy) {
-  const step = niceStep(70);       // minor grid ~70px apart
-  const majorEvery = 5;            // every 5th line is a major line + label
+  const step = niceStep(70);
+  const majorEvery = 5;        
 
   ctx.lineWidth = 1;
   ctx.font = '11px "IBM Plex Mono", monospace';
@@ -357,7 +298,6 @@ function drawGrid(cx, cy) {
     }
   }
 
-  // Axes themselves, drawn brighter than the grid.
   ctx.strokeStyle = '#8b929a';
   ctx.lineWidth = 1.5;
   ctx.beginPath(); ctx.moveTo(0, cy + 0.5); ctx.lineTo(cssWidth, cy + 0.5); ctx.stroke();
@@ -373,7 +313,7 @@ function drawCurve(entry, cx, cy) {
 
   let penDown = false;
   let prevY = null;
-  const jumpThreshold = cssHeight * 4; // beyond this, treat as a discontinuity
+  const jumpThreshold = cssHeight * 4; 
 
   for (let px = 0; px <= cssWidth; px++) {
     const worldX = screenToWorld(px, 0, cx, cy).x;
@@ -385,7 +325,7 @@ function drawCurve(entry, cx, cy) {
     const sy = cy - y * view.scale + view.panY;
 
     if (prevY !== null && Math.abs(sy - prevY) > jumpThreshold) {
-      penDown = false; // asymptote-like jump: lift the pen
+      penDown = false;
     }
     if (!penDown) { ctx.moveTo(px, sy); penDown = true; }
     else ctx.lineTo(px, sy);
@@ -409,11 +349,6 @@ function updateInfoPanel() {
     `${center.x.toFixed(2)}, ${center.y.toFixed(2)}`;
   document.getElementById('infoScale').textContent = `${view.scale.toFixed(0)} px/unit`;
 }
-
-
-/* =========================================================================
-   5. UI WIRING
-   ========================================================================= */
 
 const fnList = document.getElementById('fnList');
 const rowTemplate = document.getElementById('fnRowTemplate');
@@ -453,7 +388,6 @@ function renderFnList() {
   }
 }
 
-// --- quick-insert examples -------------------------------------------------
 const EXAMPLES = ['sin(x)', 'x^2', '1/x', 'sqrt(x)', 'x^3 - 2x', 'cos(x)*x'];
 const examplesEl = document.getElementById('examples');
 for (const ex of EXAMPLES) {
@@ -466,7 +400,6 @@ for (const ex of EXAMPLES) {
 
 document.getElementById('addFnBtn').addEventListener('click', () => addFunction('x'));
 
-// --- pan (mouse drag + single-finger touch) --------------------------------
 const wrap = document.getElementById('canvasWrap');
 const readout = document.getElementById('readout');
 let dragging = false;
@@ -497,7 +430,6 @@ wrap.addEventListener('mousemove', (e) => pointerMove(e.offsetX, e.offsetY, true
 window.addEventListener('mouseup', pointerUp);
 wrap.addEventListener('mouseleave', () => readout.classList.add('hidden'));
 
-// --- zoom (wheel, centred on cursor) ---------------------------------------
 wrap.addEventListener('wheel', (e) => {
   e.preventDefault();
   const cx = cssWidth / 2, cy = cssHeight / 2;
@@ -505,13 +437,11 @@ wrap.addEventListener('wheel', (e) => {
   const factor = Math.pow(1.0015, -e.deltaY);
   view.scale = Math.min(4000, Math.max(4, view.scale * factor));
   const after = worldToScreen(before.x, before.y, cx, cy);
-  // Keep the point under the cursor fixed: correct pan by the drift we just introduced.
   view.panX += e.offsetX - after.x;
   view.panY += e.offsetY - after.y;
   draw();
 }, { passive: false });
 
-// --- touch: one-finger pan, two-finger pinch zoom --------------------------
 let pinchDist = null;
 wrap.addEventListener('touchstart', (e) => {
   if (e.touches.length === 1) {
@@ -552,7 +482,6 @@ function touchDistance(touches) {
   return Math.hypot(dx, dy);
 }
 
-// --- header buttons ----------------------------------------------------
 document.getElementById('zoomInBtn').addEventListener('click', () => zoomStep(1.3));
 document.getElementById('zoomOutBtn').addEventListener('click', () => zoomStep(1 / 1.3));
 document.getElementById('resetBtn').addEventListener('click', () => {
@@ -568,7 +497,6 @@ function zoomStep(factor) {
   draw();
 }
 
-// --- boot ----------------------------------------------------------------
 window.addEventListener('resize', resizeCanvas);
 new ResizeObserver(resizeCanvas).observe(canvas.parentElement);
 
