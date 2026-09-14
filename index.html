@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<link rel="icon" type="image/x-icon" href="ab67616d00001e027dd568cee992457bca91cc8d.png">
+<title>Neverender- Graph your Equations</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          ink:      '#101418',
+          panel:    '#171c21',
+          line:     '#2a323a',
+          paper:    '#0b0f14',
+          gridmin:  '#1c242b',
+          gridmaj:  '#2e3941',
+          axis:     '#55636d',
+          fg:       '#ece8df',
+          fgdim:    '#8b929a',
+        },
+        fontFamily: {
+          sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+          mono: ['"IBM Plex Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+        },
+      },
+    },
+  };
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+  html, body { height: 100%; overscroll-behavior: none; }
+  #canvasWrap { touch-action: none; }
+  input[type="text"]::selection { background: #4FB8AF55; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: #2a323a; border-radius: 0; }
+  .fn-row.has-error input { border-color: #D8637B; color: #D8637B; }
+</style>
+</head>
+
+<body class="bg-ink text-fg font-sans h-screen flex flex-col overflow-hidden">
+  <header class="flex items-center justify-between border-b border-line px-4 py-2.5 shrink-0">
+    <div class="flex items-baseline gap-2">
+      <span class="font-['Cormorant_Garamond'] font-semibold uppercase tracking-wider">NEVERENDER<span class="font-['Cormorant_Garamond'] font-semibold uppercase tracking-wider">/</span>GC</span>
+      <span class="hidden sm:inline text-xs text-fgdim font-mono">y = f(x)</span>
+    </div>
+    <div class="flex items-center gap-1 font-mono text-xs">
+      <button id="zoomOutBtn"  class="w-7 h-7 border border-line hover:border-fgdim text-fgdim hover:text-fg transition-colors" title="Zoom out">−</button>
+      <button id="zoomInBtn"   class="w-7 h-7 border border-line hover:border-fgdim text-fgdim hover:text-fg transition-colors" title="Zoom in">+</button>
+      <button id="resetBtn"    class="h-7 px-3 border border-line hover:border-fgdim text-fgdim hover:text-fg transition-colors ml-1">reset view</button>
+    </div>
+  </header>
+  <main class="flex flex-col md:flex-row flex-1 min-h-0">
+    <aside class="order-2 md:order-1 md:w-[320px] shrink-0 border-t md:border-t-0 md:border-r border-line bg-panel flex flex-col min-h-0">
+
+      <div class="px-4 pt-4 pb-2 flex items-center justify-between">
+        <h1 class="text-sm font-['Cormorant_Garamond'] font-semibold uppercase tracking-wider">functions</h1>
+        <button id="addFnBtn" class="text-xs font-mono border border-line hover:border-fgdim px-2 py-1 text-fgdim hover:text-fg transition-colors">+ add</button>
+      </div>
+
+      <div id="fnList" class="flex-1 overflow-y-auto px-4 pb-3 flex flex-col gap-2"></div>
+
+      <div class="px-4 py-3 border-t border-line">
+        <h2 class="text-xs text-fgdim mb-2">quick insert</h2>
+        <div id="examples" class="flex flex-wrap gap-1.5"></div>
+      </div>
+
+      <div class="px-4 py-3 border-t border-line font-mono text-[11px] text-fgdim leading-relaxed">
+        <div class="flex justify-between"><span>center</span><span id="infoCenter">0, 0</span></div>
+        <div class="flex justify-between"><span>scale</span><span id="infoScale">— px/unit</span></div>
+        <div class="mt-2 text-fgdim/70">drag to pan · scroll or pinch to zoom</div>
+      </div>
+    </aside>
+
+    <section id="canvasWrap" class="order-1 md:order-2 relative flex-1 min-h-[45vh] md:min-h-0 bg-paper">
+      <canvas id="graph" class="absolute inset-0 w-full h-full"></canvas>
+      <div id="readout" class="hidden absolute px-2 py-1 bg-panel border border-line text-fg font-mono text-[11px] pointer-events-none whitespace-nowrap"></div>
+    </section>
+
+  </main>
+
+  <template id="fnRowTemplate">
+    <div class="fn-row flex items-center gap-2">
+      <button class="swatchBtn w-3.5 h-3.5 shrink-0 border border-black/20" title="toggle visibility"></button>
+      <span class="font-mono text-fgdim text-sm shrink-0">y=</span>
+      <input type="text" spellcheck="false"
+        class="exprInput flex-1 min-w-0 bg-ink border border-line focus:border-fgdim outline-none font-mono text-sm px-2 py-1.5 text-fg">
+      <button class="deleteBtn shrink-0 w-7 h-7 text-fgdim hover:text-[#D8637B] transition-colors" title="remove">×</button>
+    </div>
+  </template>
+
+  <script src="script.js"></script>
+</body>
+</html>
