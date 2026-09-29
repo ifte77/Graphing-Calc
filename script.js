@@ -493,8 +493,6 @@ function placeholderFor(mode) {
   return 'e.g. sin(x)';
 }
 
-/** Renders the sidebar's function list, including a friendly empty state
- *  instead of just leaving blank space when nothing's been plotted yet. */
 function renderFnList() {
   fnList.innerHTML = '';
 
@@ -524,9 +522,6 @@ function renderFnList() {
     input.placeholder = placeholderFor(entry.mode);
     input.title = entry.error ? entry.error : '';
 
-    // Inline, always-visible error text — a hover-only tooltip alone means
-    // touch users (and anyone not actively hovering) never see why a
-    // function failed to parse.
     const errorEl = node.querySelector('.errorText');
     errorEl.textContent = entry.error || '';
     errorEl.classList.toggle('hidden', !entry.error);
@@ -658,7 +653,7 @@ wrap.addEventListener('touchmove', (e) => {
   } else if (e.touches.length === 2) {
     const dist = touchDistance(e.touches);
     if (pinchDist) {
-      zoomStep(dist / pinchDist); // always zoom from canvas center, not the pinch point
+      zoomStep(dist / pinchDist);
     }
     pinchDist = dist;
   }
@@ -690,5 +685,5 @@ function zoomStep(factor) {
 window.addEventListener('resize', resizeCanvas);
 new ResizeObserver(resizeCanvas).observe(canvas.parentElement);
 
-renderFnList(); // show the empty-state message immediately, since we start with no functions
+renderFnList();
 resizeCanvas();
