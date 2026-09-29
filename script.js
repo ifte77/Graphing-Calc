@@ -169,7 +169,7 @@ function compileExpression(src, varName) {
   varName = varName || 'x';
   if (!src || !src.trim()) throw new Error('empty expression');
   const rpn = toRPN(tokenize(src));
-  evalRPN(rpn, { [varName]: 1 }); 
+  evalRPN(rpn, { [varName]: 1 });
   return (v) => evalRPN(rpn, { [varName]: v });
 }
 
@@ -186,6 +186,28 @@ function compileImplicit(src) {
   evalRPN(rightRPN, { x: 1, y: 1 });
 
   return (x, y) => evalRPN(leftRPN, { x, y }) - evalRPN(rightRPN, { x, y });
+}
+
+function compilePoint(src) {
+  if (!src || !src.trim()) throw new Error('empty point — expected e.g. 3, 4');
+  let s = src.trim();
+  if (s.startsWith('(') && s.endsWith(')')) s = s.slice(1, -1);
+
+  const tokens = tokenize(s);
+  let depth = 0, splitAt = -1;
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t.type === '(') depth++;
+    else if (t.type === ')') depth--;
+    else if (t.type === ',' && depth === 0) { splitAt = i; break; }
+  }
+  if (splitAt === -1) throw new Error('expected two comma-separated values, e.g. 3, 4');
+
+  const xRPN = toRPN(tokens.slice(0, splitAt));
+  const yRPN = toRPN(tokens.slice(splitAt + 1));
+  const xVal = evalRPN(xRPN, {});
+  const yVal = evalRPN(yRPN, {});
+  return () => ({ x: xVal, y: yVal });
 }
 
 const view = { scale: 60, panX: 0, panY: 0 };
@@ -223,11 +245,22 @@ const nextColor = () => PALETTE[colorCursor++ % PALETTE.length];
 let fnIdCounter = 0;
 const functions = [];
 
+const MODE_CYCLE = ['y', 'x', 'eq', 'point'];
+function nextMode(mode) {
+  return MODE_CYCLE[(MODE_CYCLE.indexOf(mode) + 1) % MODE_CYCLE.length];
+}
+function modeLabel(mode) {
+  if (mode === 'x') return 'x=';
+  if (mode === 'eq') return 'eq';
+  if (mode === 'point') return '(x,y)';
+  return 'y=';
+}
+
 function addFunction(expr, colorOverride, mode) {
   const entry = {
     id: ++fnIdCounter,
     expr,
-    mode: mode === 'x' ? 'x' : mode === 'eq' ? 'eq' : 'y',
+    mode: MODE_CYCLE.includes(mode) ? mode : 'y',
     color: colorOverride || nextColor(),
     visible: true,
     compiled: null,
@@ -241,11 +274,9 @@ function addFunction(expr, colorOverride, mode) {
 
 function recompile(entry) {
   try {
-    if (entry.mode === 'eq') {
-      entry.compiled = compileImplicit(entry.expr);
-    } else {
-      entry.compiled = compileExpression(entry.expr, entry.mode === 'x' ? 'y' : 'x');
-    }
+    if (entry.mode === 'eq') entry.compiled = compileImplicit(entry.expr);
+    else if (entry.mode === 'point') entry.compiled = compilePoint(entry.expr);
+    else entry.compiled = compileExpression(entry.expr, entry.mode === 'x' ? 'y' : 'x');
     entry.error = null;
   } catch (err) {
     entry.compiled = null;
@@ -403,6 +434,7 @@ function drawImplicitCurve(entry, cx, cy) {
         ctx.moveTo(crossings[0].x, crossings[0].y);
         ctx.lineTo(crossings[1].x, crossings[1].y);
       } else if (crossings.length === 4) {
+        const center = (v00 + v10 + v01 + v11) / 4;
         if (center < 0) {
           ctx.moveTo(crossings[0].x, crossings[0].y); ctx.lineTo(crossings[3].x, crossings[3].y);
           ctx.moveTo(crossings[1].x, crossings[1].y); ctx.lineTo(crossings[2].x, crossings[2].y);
@@ -416,9 +448,22 @@ function drawImplicitCurve(entry, cx, cy) {
   ctx.stroke();
 }
 
+function drawPoint(entry, cx, cy) {
+  const { x, y } = entry.compiled();
+  const { x: sx, y: sy } = worldToScreen(x, y, cx, cy);
+  ctx.fillStyle = entry.color;
+  ctx.beginPath();
+  ctx.arc(sx, sy, 4.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#0b0f14';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+}
+
 function drawCurve(entry, cx, cy) {
   if (!entry.visible || !entry.compiled) return;
   if (entry.mode === 'eq') drawImplicitCurve(entry, cx, cy);
+  else if (entry.mode === 'point') drawPoint(entry, cx, cy);
   else drawFunctionCurve(entry, cx, cy);
 }
 
@@ -444,11 +489,23 @@ const rowTemplate = document.getElementById('fnRowTemplate');
 function placeholderFor(mode) {
   if (mode === 'x') return 'e.g. y^2';
   if (mode === 'eq') return 'e.g. x^2/4 + y^2/9 = 1';
+  if (mode === 'point') return 'e.g. 3, 4';
   return 'e.g. sin(x)';
 }
 
+/** Renders the sidebar's function list, including a friendly empty state
+ *  instead of just leaving blank space when nothing's been plotted yet. */
 function renderFnList() {
   fnList.innerHTML = '';
+
+  if (functions.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'text-xs text-fgdim/70 leading-relaxed py-1';
+    empty.textContent = 'Nothing plotted yet — click "+ add," or try an example below.';
+    fnList.appendChild(empty);
+    return;
+  }
+
   for (const entry of functions) {
     const node = rowTemplate.content.firstElementChild.cloneNode(true);
     node.dataset.id = entry.id;
@@ -457,36 +514,50 @@ function renderFnList() {
     const swatch = node.querySelector('.swatchBtn');
     swatch.style.background = entry.visible ? entry.color : 'transparent';
     swatch.style.borderColor = entry.color;
+    swatch.setAttribute('aria-pressed', String(entry.visible));
 
     const modeBtn = node.querySelector('.modeToggleBtn');
-    modeBtn.textContent = entry.mode === 'x' ? 'x=' : entry.mode === 'eq' ? 'eq' : 'y=';
+    modeBtn.textContent = modeLabel(entry.mode);
 
     const input = node.querySelector('.exprInput');
     input.value = entry.expr;
     input.placeholder = placeholderFor(entry.mode);
     input.title = entry.error ? entry.error : '';
 
+    // Inline, always-visible error text — a hover-only tooltip alone means
+    // touch users (and anyone not actively hovering) never see why a
+    // function failed to parse.
+    const errorEl = node.querySelector('.errorText');
+    errorEl.textContent = entry.error || '';
+    errorEl.classList.toggle('hidden', !entry.error);
+
+    const syncErrorState = () => {
+      node.classList.toggle('has-error', !!entry.error);
+      input.title = entry.error || '';
+      errorEl.textContent = entry.error || '';
+      errorEl.classList.toggle('hidden', !entry.error);
+    };
+
     swatch.addEventListener('click', () => {
       entry.visible = !entry.visible;
       swatch.style.background = entry.visible ? entry.color : 'transparent';
+      swatch.setAttribute('aria-pressed', String(entry.visible));
       draw();
     });
 
     modeBtn.addEventListener('click', () => {
-      entry.mode = entry.mode === 'y' ? 'x' : entry.mode === 'x' ? 'eq' : 'y';
-      modeBtn.textContent = entry.mode === 'x' ? 'x=' : entry.mode === 'eq' ? 'eq' : 'y=';
+      entry.mode = nextMode(entry.mode);
+      modeBtn.textContent = modeLabel(entry.mode);
       input.placeholder = placeholderFor(entry.mode);
       recompile(entry);
-      node.classList.toggle('has-error', !!entry.error);
-      input.title = entry.error || '';
+      syncErrorState();
       draw();
     });
 
     input.addEventListener('input', () => {
       entry.expr = input.value;
       recompile(entry);
-      node.classList.toggle('has-error', !!entry.error);
-      input.title = entry.error || '';
+      syncErrorState();
       draw();
     });
 
@@ -506,7 +577,7 @@ const examplesEl = document.getElementById('examples');
 for (const ex of EXAMPLES) {
   const btn = document.createElement('button');
   btn.textContent = ex.label;
-  btn.className = 'font-mono text-[11px] border border-line hover:border-fgdim text-fgdim hover:text-fg px-2 py-1 transition-colors';
+  btn.className = 'focus-ring font-mono text-[11px] border border-line hover:border-fgdim text-fgdim hover:text-fg px-2 py-1 transition-colors';
   btn.addEventListener('click', () => addFunction(ex.expr, null, ex.mode));
   examplesEl.appendChild(btn);
 }
@@ -521,12 +592,17 @@ const conicExamplesEl = document.getElementById('conicExamples');
 for (const ex of CONIC_EXAMPLES) {
   const btn = document.createElement('button');
   btn.textContent = ex.label;
-  btn.className = 'font-mono text-[11px] border border-line hover:border-fgdim text-fgdim hover:text-fg px-2 py-1 transition-colors';
+  btn.className = 'focus-ring font-mono text-[11px] border border-line hover:border-fgdim text-fgdim hover:text-fg px-2 py-1 transition-colors';
   btn.addEventListener('click', () => addFunction(ex.expr, null, ex.mode));
   conicExamplesEl.appendChild(btn);
 }
 
 document.getElementById('addFnBtn').addEventListener('click', () => addFunction('x'));
+document.getElementById('clearAllBtn').addEventListener('click', () => {
+  functions.length = 0;
+  renderFnList();
+  draw();
+});
 
 const wrap = document.getElementById('canvasWrap');
 const readout = document.getElementById('readout');
@@ -614,4 +690,5 @@ function zoomStep(factor) {
 window.addEventListener('resize', resizeCanvas);
 new ResizeObserver(resizeCanvas).observe(canvas.parentElement);
 
+renderFnList(); // show the empty-state message immediately, since we start with no functions
 resizeCanvas();
