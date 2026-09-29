@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
-<link rel="icon" type="image/x-icon" href="418699cc471cfe2a0a51c899dc72ad39-Picsart-BackgroundRemover.jpg">
+<link rel="icon" type="image/x-icon" href="useful-justice-logos-v0-6yk9lww6j8r71.png">
 <title>Neverender- Graph your Equations</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
@@ -46,7 +46,7 @@
   <header class="flex items-center justify-between border-b border-line px-4 py-2.5 shrink-0">
     <div class="flex items-baseline gap-2">
       <span class="font-['Cormorant_Garamond'] font-semibold uppercase tracking-wider">NEVERENDER<span class="font-['Cormorant_Garamond'] font-semibold uppercase tracking-wider">/</span>GC</span>
-      <span class="hidden sm:inline text-xs text-fgdim font-mono">y = f(x) ; Click on y for x = f(y)</span>
+      <span class="hidden sm:inline text-xs text-fgdim font-mono">click y= to cycle y=f(x) · x=f(y) · eq (conics)</span>
     </div>
     <div class="flex items-center gap-1 font-mono text-xs">
       <button id="zoomOutBtn"  class="font-['Cormorant_Garamond'] font-bold uppercase tracking-wider text-black hover:text-white transition-colorsw-full border-2 border-black bg-red-500 px-6 py-3 font-bold uppercase tracking-wider text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-x-1 active:translate-y-1 active:shadow-none transition-all" title="Zoom out">−</button>
@@ -69,6 +69,11 @@
         <div id="examples" class="flex flex-wrap gap-1.5 "></div>
       </div>
 
+      <div class="px-4 py-3 border-t border-line">
+        <h2 class="text-xs text-fgdim mb-2">conics</h2>
+        <div id="conicExamples" class="flex flex-wrap gap-1.5 "></div>
+      </div>
+
       <div class="px-4 py-3 border-t border-line font-mono text-[11px] text-fgdim leading-relaxed ">
         <div class="flex justify-between"><span>center</span><span id="infoCenter">0, 0</span></div>
         <div class="flex justify-between"><span>scale</span><span id="infoScale">— px/unit</span></div>
@@ -86,7 +91,7 @@
   <template id="fnRowTemplate">
     <div class="fn-row flex items-center gap-2">
       <button class="swatchBtn w-3.5 h-3.5 shrink-0 border border-black/20" title="toggle visibility"></button>
-      <button class="modeToggleBtn font-mono text-fgdim text-sm shrink-0 w-7 text-left hover:text-fg transition-colors" title="switch between y=f(x) and x=f(y)">y=</button>
+      <button class="modeToggleBtn font-mono text-fgdim text-sm shrink-0 w-7 text-left hover:text-fg transition-colors" title="click to cycle: y=f(x) → x=f(y) → equation (e.g. conics like x^2/4+y^2/9=1)">y=</button>
       <input type="text" spellcheck="false"
         class="exprInput flex-1 min-w-0 bg-ink border border-line focus:border-fgdim outline-none font-mono text-sm px-2 py-1.5 text-fg">
       <button class="deleteBtn shrink-0 w-7 h-7 text-fgdim hover:text-[#D8637B] transition-colors" title="remove">×</button>

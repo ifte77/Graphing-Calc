@@ -127,7 +127,7 @@ function toRPN(tokens) {
   return output;
 }
 
-function evalRPN(rpn, val, varName) {
+function evalRPN(rpn, vars) {
   const stack = [];
   for (const t of rpn) {
     if (typeof t === 'string') {
@@ -151,7 +151,7 @@ function evalRPN(rpn, val, varName) {
     } else if (t.type === 'num') {
       stack.push(t.value);
     } else if (t.type === 'ident') {
-      if (t.value === varName) stack.push(val);
+      if (t.value in vars) stack.push(vars[t.value]);
       else if (t.value in CONSTANTS) stack.push(CONSTANTS[t.value]);
       else throw new Error(`unknown identifier "${t.value}"`);
     } else if (t.type === 'call') {
@@ -169,8 +169,23 @@ function compileExpression(src, varName) {
   varName = varName || 'x';
   if (!src || !src.trim()) throw new Error('empty expression');
   const rpn = toRPN(tokenize(src));
-  evalRPN(rpn, 1, varName);
-  return (v) => evalRPN(rpn, v, varName);
+  evalRPN(rpn, { [varName]: 1 }); 
+  return (v) => evalRPN(rpn, { [varName]: v });
+}
+
+function compileImplicit(src) {
+  if (!src || !src.trim()) throw new Error('empty expression');
+  const eqPos = src.indexOf('=');
+  const leftStr = eqPos === -1 ? src : src.slice(0, eqPos);
+  const rightStr = eqPos === -1 ? '0' : src.slice(eqPos + 1);
+
+  const leftRPN = toRPN(tokenize(leftStr));
+  const rightRPN = toRPN(tokenize(rightStr));
+
+  evalRPN(leftRPN, { x: 1, y: 1 });
+  evalRPN(rightRPN, { x: 1, y: 1 });
+
+  return (x, y) => evalRPN(leftRPN, { x, y }) - evalRPN(rightRPN, { x, y });
 }
 
 const view = { scale: 60, panX: 0, panY: 0 };
@@ -212,7 +227,7 @@ function addFunction(expr, colorOverride, mode) {
   const entry = {
     id: ++fnIdCounter,
     expr,
-    mode: mode === 'x' ? 'x' : 'y',
+    mode: mode === 'x' ? 'x' : mode === 'eq' ? 'eq' : 'y',
     color: colorOverride || nextColor(),
     visible: true,
     compiled: null,
@@ -226,7 +241,11 @@ function addFunction(expr, colorOverride, mode) {
 
 function recompile(entry) {
   try {
-    entry.compiled = compileExpression(entry.expr, entry.mode === 'x' ? 'y' : 'x');
+    if (entry.mode === 'eq') {
+      entry.compiled = compileImplicit(entry.expr);
+    } else {
+      entry.compiled = compileExpression(entry.expr, entry.mode === 'x' ? 'y' : 'x');
+    }
     entry.error = null;
   } catch (err) {
     entry.compiled = null;
@@ -303,8 +322,7 @@ function drawGrid(cx, cy) {
   ctx.beginPath(); ctx.moveTo(cx + 0.5, 0); ctx.lineTo(cx + 0.5, cssHeight); ctx.stroke();
 }
 
-function drawCurve(entry, cx, cy) {
-  if (!entry.visible || !entry.compiled) return;
+function drawFunctionCurve(entry, cx, cy) {
   ctx.strokeStyle = entry.color;
   ctx.lineWidth = 2.25;
   ctx.lineJoin = 'round';
@@ -343,6 +361,67 @@ function drawCurve(entry, cx, cy) {
   ctx.stroke();
 }
 
+function drawImplicitCurve(entry, cx, cy) {
+  const step = 7;
+  const cols = Math.ceil(cssWidth / step) + 1;
+  const rows = Math.ceil(cssHeight / step) + 1;
+
+  const vals = new Float64Array(cols * rows);
+  for (let j = 0; j < rows; j++) {
+    for (let i = 0; i < cols; i++) {
+      const w = screenToWorld(i * step, j * step, cx, cy);
+      let v;
+      try { v = entry.compiled(w.x, w.y); } catch { v = NaN; }
+      vals[j * cols + i] = v;
+    }
+  }
+
+  const lerp = (p1, v1, p2, v2) => {
+    const t = v2 - v1 !== 0 ? (0 - v1) / (v2 - v1) : 0.5;
+    return { x: p1.x + t * (p2.x - p1.x), y: p1.y + t * (p2.y - p1.y) };
+  };
+
+  ctx.strokeStyle = entry.color;
+  ctx.lineWidth = 2.25;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+
+  for (let j = 0; j < rows - 1; j++) {
+    for (let i = 0; i < cols - 1; i++) {
+      const x0 = i * step, x1 = (i + 1) * step, y0 = j * step, y1 = (j + 1) * step;
+      const v00 = vals[j * cols + i],       v10 = vals[j * cols + i + 1];
+      const v01 = vals[(j + 1) * cols + i], v11 = vals[(j + 1) * cols + i + 1];
+      if (![v00, v10, v01, v11].every(Number.isFinite)) continue;
+
+      const crossings = [];
+      if ((v00 < 0) !== (v10 < 0)) crossings.push(lerp({ x: x0, y: y0 }, v00, { x: x1, y: y0 }, v10)); // top
+      if ((v10 < 0) !== (v11 < 0)) crossings.push(lerp({ x: x1, y: y0 }, v10, { x: x1, y: y1 }, v11)); // right
+      if ((v01 < 0) !== (v11 < 0)) crossings.push(lerp({ x: x0, y: y1 }, v01, { x: x1, y: y1 }, v11)); // bottom
+      if ((v00 < 0) !== (v01 < 0)) crossings.push(lerp({ x: x0, y: y0 }, v00, { x: x0, y: y1 }, v01)); // left
+
+      if (crossings.length === 2) {
+        ctx.moveTo(crossings[0].x, crossings[0].y);
+        ctx.lineTo(crossings[1].x, crossings[1].y);
+      } else if (crossings.length === 4) {
+        if (center < 0) {
+          ctx.moveTo(crossings[0].x, crossings[0].y); ctx.lineTo(crossings[3].x, crossings[3].y);
+          ctx.moveTo(crossings[1].x, crossings[1].y); ctx.lineTo(crossings[2].x, crossings[2].y);
+        } else {
+          ctx.moveTo(crossings[0].x, crossings[0].y); ctx.lineTo(crossings[1].x, crossings[1].y);
+          ctx.moveTo(crossings[3].x, crossings[3].y); ctx.lineTo(crossings[2].x, crossings[2].y);
+        }
+      }
+    }
+  }
+  ctx.stroke();
+}
+
+function drawCurve(entry, cx, cy) {
+  if (!entry.visible || !entry.compiled) return;
+  if (entry.mode === 'eq') drawImplicitCurve(entry, cx, cy);
+  else drawFunctionCurve(entry, cx, cy);
+}
+
 function draw() {
   ctx.clearRect(0, 0, cssWidth, cssHeight);
   const cx = cssWidth / 2, cy = cssHeight / 2;
@@ -362,6 +441,12 @@ function updateInfoPanel() {
 const fnList = document.getElementById('fnList');
 const rowTemplate = document.getElementById('fnRowTemplate');
 
+function placeholderFor(mode) {
+  if (mode === 'x') return 'e.g. y^2';
+  if (mode === 'eq') return 'e.g. x^2/4 + y^2/9 = 1';
+  return 'e.g. sin(x)';
+}
+
 function renderFnList() {
   fnList.innerHTML = '';
   for (const entry of functions) {
@@ -374,10 +459,11 @@ function renderFnList() {
     swatch.style.borderColor = entry.color;
 
     const modeBtn = node.querySelector('.modeToggleBtn');
-    modeBtn.textContent = entry.mode === 'x' ? 'x=' : 'y=';
+    modeBtn.textContent = entry.mode === 'x' ? 'x=' : entry.mode === 'eq' ? 'eq' : 'y=';
 
     const input = node.querySelector('.exprInput');
     input.value = entry.expr;
+    input.placeholder = placeholderFor(entry.mode);
     input.title = entry.error ? entry.error : '';
 
     swatch.addEventListener('click', () => {
@@ -387,8 +473,9 @@ function renderFnList() {
     });
 
     modeBtn.addEventListener('click', () => {
-      entry.mode = entry.mode === 'x' ? 'y' : 'x';
-      modeBtn.textContent = entry.mode === 'x' ? 'x=' : 'y=';
+      entry.mode = entry.mode === 'y' ? 'x' : entry.mode === 'x' ? 'eq' : 'y';
+      modeBtn.textContent = entry.mode === 'x' ? 'x=' : entry.mode === 'eq' ? 'eq' : 'y=';
+      input.placeholder = placeholderFor(entry.mode);
       recompile(entry);
       node.classList.toggle('has-error', !!entry.error);
       input.title = entry.error || '';
@@ -414,8 +501,6 @@ const EXAMPLES = [
   { label: 'x^2', expr: 'x^2', mode: 'y' },
   { label: '1/x', expr: '1/x', mode: 'y' },
   { label: 'sqrt(x)', expr: 'sqrt(x)', mode: 'y' },
-  { label: 'x = y^2', expr: 'y^2', mode: 'x' },
-  { label: 'cos(x)*x', expr: 'cos(x)*x', mode: 'y' },
 ];
 const examplesEl = document.getElementById('examples');
 for (const ex of EXAMPLES) {
@@ -424,6 +509,21 @@ for (const ex of EXAMPLES) {
   btn.className = 'font-mono text-[11px] border border-line hover:border-fgdim text-fgdim hover:text-fg px-2 py-1 transition-colors';
   btn.addEventListener('click', () => addFunction(ex.expr, null, ex.mode));
   examplesEl.appendChild(btn);
+}
+
+const CONIC_EXAMPLES = [
+  { label: 'circle', expr: 'x^2 + y^2 = 4', mode: 'eq' },
+  { label: 'ellipse', expr: 'x^2/9 + y^2/4 = 1', mode: 'eq' },
+  { label: 'parabola', expr: 'y = x^2/4', mode: 'eq' },
+  { label: 'hyperbola', expr: 'x^2/4 - y^2/9 = 1', mode: 'eq' },
+];
+const conicExamplesEl = document.getElementById('conicExamples');
+for (const ex of CONIC_EXAMPLES) {
+  const btn = document.createElement('button');
+  btn.textContent = ex.label;
+  btn.className = 'font-mono text-[11px] border border-line hover:border-fgdim text-fgdim hover:text-fg px-2 py-1 transition-colors';
+  btn.addEventListener('click', () => addFunction(ex.expr, null, ex.mode));
+  conicExamplesEl.appendChild(btn);
 }
 
 document.getElementById('addFnBtn').addEventListener('click', () => addFunction('x'));
@@ -460,14 +560,8 @@ wrap.addEventListener('mouseleave', () => readout.classList.add('hidden'));
 
 wrap.addEventListener('wheel', (e) => {
   e.preventDefault();
-  const cx = cssWidth / 2, cy = cssHeight / 2;
-  const before = screenToWorld(e.offsetX, e.offsetY, cx, cy);
   const factor = Math.pow(1.0015, -e.deltaY);
-  view.scale = Math.min(4000, Math.max(4, view.scale * factor));
-  const after = worldToScreen(before.x, before.y, cx, cy);
-  view.panX += e.offsetX - after.x;
-  view.panY += e.offsetY - after.y;
-  draw();
+  zoomStep(factor);
 }, { passive: false });
 
 let pinchDist = null;
@@ -488,15 +582,7 @@ wrap.addEventListener('touchmove', (e) => {
   } else if (e.touches.length === 2) {
     const dist = touchDistance(e.touches);
     if (pinchDist) {
-      const cx = cssWidth / 2, cy = cssHeight / 2;
-      const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - r.left;
-      const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - r.top;
-      const before = screenToWorld(midX, midY, cx, cy);
-      view.scale = Math.min(4000, Math.max(4, view.scale * (dist / pinchDist)));
-      const after = worldToScreen(before.x, before.y, cx, cy);
-      view.panX += midX - after.x;
-      view.panY += midY - after.y;
-      draw();
+      zoomStep(dist / pinchDist); // always zoom from canvas center, not the pinch point
     }
     pinchDist = dist;
   }
@@ -528,6 +614,4 @@ function zoomStep(factor) {
 window.addEventListener('resize', resizeCanvas);
 new ResizeObserver(resizeCanvas).observe(canvas.parentElement);
 
-addFunction('sin(x)');
-addFunction('x^2 / 4');
 resizeCanvas();
